@@ -1,4 +1,4 @@
-#521ke-CourseSelectAssistant
+# 521ke-CourseSelectAssistant
 
 *课程帮(521ke.com)* 选课脚本  
 本脚本仅供编程学习交流使用，严禁用于其它用途，请于24小时内删除!  
