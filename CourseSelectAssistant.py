@@ -1,42 +1,49 @@
 
-"""
-521ke CourseSelectAssistant
+desc = """
+【521ke Course Select Assistant】
 
-本脚本仅供编程学习交流使用，严禁用于其它用途，请于24小时内删除!
-禁止以任何形式将本脚本编译为可执行文件后发布!
+本脚本仅供编程学习交流使用，严禁用于商业用途，请于24小时内删除！
+程序使用单线程进行选课请求，以尽量减小对选课网站造成的影响
+项目仓库: https://github.com/233a344a455/521ke-CSA
+
+【本脚本无法保证自动选课一定成功！】
 
 @Author: DeltaZero
-@Time: 2021/02/27
-@Version: beta-0.2
+@Time: 2021/09/04
+@Version: 0.3
 """
 
-# 请填写此项，可以通过抓包获取
-SCHOOL_ID = ''
 
+SCHOOL_ID = '' # 请填写此项，可以通过抓包获取
+TIME_OFFSET = -3 # 开始选课后几秒发起选课请求，若为负值表示提前发起选课请求的秒数
+
+
+import base64
 import logging
 import re
+import subprocess
 import time
 from datetime import datetime
-
 import requests
 import simplejson
+import os
 
 logging.basicConfig(format='[%(asctime)s][%(levelname)s] %(message)s', level='INFO')
-logger = logging.getLogger('CourseElector')
+logger = logging.getLogger('521CSA')
 
-if not SCHOOL_ID:
-    logger.error("请填写SCHOOL_ID后运行!")
-    exit(1)
+# Ignore system proxy
+session = requests.Session()
+session.trust_env = False
 
 def get_cookies(username: str, password: str) -> requests.sessions.RequestsCookieJar:
     url = "https://www.521ke.com/sso/doStudNoAjaxLogin"
     data = {'schoId': SCHOOL_ID, 'userName': username, 'password': password}
 
-    r = requests.post(url, data=data)
+    r = session.post(url, data=data)
 
     if not r.json()['success']:
         logger.error("登录失败: " + r.json()['message'])
-        
+        os.system("pause")
         exit(1)
     else:
         logger.info("登录成功!")
@@ -45,7 +52,7 @@ def get_cookies(username: str, password: str) -> requests.sessions.RequestsCooki
 
 def get_basic_info(cookies: requests.sessions.RequestsCookieJar):
     url = "https://www.521ke.com/electiveCourse/studentChoice"
-    r = requests.get(url, cookies=cookies).text
+    r = session.get(url, cookies=cookies).text
     name = re.findall(r"<span id='stuName'>(.*?)<\/span>", r)[0]
     class_ = re.findall(r"<span id='className'>，班级：(.*?)<\/span>", r)[0]
     configId = re.findall(r'var currConfigId = "(.*?)";', r)[0]
@@ -57,20 +64,20 @@ def get_basic_info(cookies: requests.sessions.RequestsCookieJar):
 
 def get_courses_list(cookies: requests.sessions.RequestsCookieJar, configId: str):
     url = f"https://www.521ke.com/electiveCourse/getStuCourseDefault/{configId}"
-    r = requests.get(url, cookies=cookies)
+    r = session.get(url, cookies=cookies)
     try:
         return [(i['subN'] + ' ' + i['tName'], i['subid']) for i in r.json()['optCourseSubjectlist']]
     except KeyError:
         logger.error("获取选课列表失败，请稍后重试")
-        
+        os.system("pause")
         exit(1)
 
 
-def select_course(configId: str, courseId: str, cookies: requests.sessions.RequestsCookieJar):
+def elect_course(configId: str, courseId: str, cookies: requests.sessions.RequestsCookieJar):
     url = f"https://www.521ke.com/electiveCourse/addSelCourseLockStudVer/{configId}/{courseId}/1"
 
     while True:
-        r = requests.post(url, data={}, cookies=cookies)
+        r = session.post(url, data={}, cookies=cookies)
         try:
             if r.status_code != 200:
                 logger.warning(f"服务器响应错误! StatusCode:{r.status_code}")
@@ -81,7 +88,7 @@ def select_course(configId: str, courseId: str, cookies: requests.sessions.Reque
                 logger.info('选课成功！')
                 return
             elif state == 'error0':
-                logger.warning("未到选课时间！")
+                logger.warning("未到选课时间！【请勿关闭程序】将在选课时间开始后自动选课")
                 time.sleep(0.3)
             elif state == 'error1':
                 logger.info("选课已完成！")
@@ -100,11 +107,7 @@ def select_course(configId: str, courseId: str, cookies: requests.sessions.Reque
 
 if __name__ == '__main__':
 
-    print("\n521ke CourseSelectAssistant\n"
-          "本脚本仅供编程学习交流使用，严禁用于其它用途，请于24小时内删除！\n"
-          "@Author: DeltaZero\n"
-          "@Time: 2021/02/27\n"
-          "@Version: beta-0.2\n")
+    print(desc)
 
     username = input("输入学号: ").strip()
     password = input("输入密码: ").strip()
@@ -119,24 +122,30 @@ if __name__ == '__main__':
         print(f"    [{idx + 1}] {courseName}")
     idx = int(input("\n请输入课程编号: ").strip()) - 1
 
-    courseId = courseList[idx][1]
+    try:
+        courseId = courseList[idx][1]
+    except IndexError:
+        logger.error("无效的序号输入！")
+        os.system("pause")
+        exit(1)
     logger.info(f"已选择{courseList[idx][0]}，CourseId: {courseId}")
 
     if startTime > datetime.now():
-        waitTime = (startTime - datetime.now()).seconds - 3
+        waitTime = (startTime - datetime.now()).seconds + TIME_OFFSET
     else:
         waitTime = 0
 
-    logger.info(f"开始选课时间: {startTime.strftime('%y-%m-%d %I:%M:%S')}，将在选课开始前3s开始请求")
+    logger.info(f"开始选课时间: {startTime.strftime('%y-%m-%d %I:%M:%S')}，将在选课开始" + \
+                f"{'前' if TIME_OFFSET < 0 else '后'}{abs(TIME_OFFSET)}开始请求")
 
     while waitTime > 0:
         logger.info(f"开始选课时间: {startTime.strftime('%y-%m-%d %I:%M:%S')}, "
                     f"现在时间: {datetime.now().strftime('%y-%m-%d %I:%M:%S')}, "
-                    f"将在 {waitTime}s 后开始请求，等待期间请勿关闭窗口！")
-        time.sleep(min(waitTime, 120))
-        waitTime -= 120
+                    f"将在 {waitTime}s 后开始请求，【等待期间请勿关闭窗口】！")
+        time.sleep(min(waitTime, 10))
+        waitTime -= 10
 
     logger.warning("开始发送选课请求...")
 
-    select_course(configId, courseId, cookies)
-    
+    elect_course(configId, courseId, cookies)
+    os.system("pause")
